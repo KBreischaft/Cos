@@ -1,3 +1,8 @@
+> **Superseded on 2026-10-01.** Kyle chose a sanctioned source instead: the watcher now reads
+> the MLSSAZ public search (FlexMLS IDX) through `mls_portal.py` on the PC, with MLSSAZ's verbal
+> OK for small checks (`config.json` `"source": "mls_portal"`). This kit was never applied and is
+> kept only as a reference for a resilient HTTP fetch layer. Do not apply it to the watcher.
+
 # DSD MLS watcher: Zillow 403 fix (2026-09-30)
 
 ## What broke
