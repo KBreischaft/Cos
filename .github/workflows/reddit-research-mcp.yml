@@ -32,10 +32,15 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - name: Diagnose archive latency (informational)
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/diagnose-arctic.mjs
       - name: Offline plumbing tests
         run: npm test
       - name: Live smoke test (real archives)
         run: npm run smoke
+        env:
+          REDDIT_MCP_DEBUG: "1"
       - name: Live research sample (SBA COVID loans in default)
         run: node scripts/research-sample.mjs
 

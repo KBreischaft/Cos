@@ -58,7 +58,7 @@ await check("Arctic Shift: find subreddits", "reddit_find_subreddits", { prefix:
 
 await check("Research sweep: SBA COVID loans in default", "reddit_research_topic",
   { queries: ["EIDL default", "EIDL treasury offset", "SBA hardship accommodation"], subreddits: ["EIDL", "smallbusiness", "SBA"], after: "2020-03-01", per_search_limit: 25, top_n: 10 },
-  (j) => { need(j.totals.posts + j.totals.comments > 0, "no results"); return `${j.searches_run} searches -> ${j.totals.posts} posts, ${j.totals.comments} comments; top: "${j.top_posts[0]?.title?.slice(0, 60)}"; ${j.notes.length} notes`; });
+  (j) => { need(j.totals.posts + j.totals.comments > 0, "no results"); return `${j.searches_run} searches -> ${j.totals.posts} posts, ${j.totals.comments} comments; top: "${(j.top_posts[0]?.title || j.top_comments[0]?.text || '').slice(0, 60)}"; ${j.notes.length} notes`; });
 
 await client.close();
 console.log(failed ? `\n${failed} check(s) FAILED` : "\nAll live checks passed.");

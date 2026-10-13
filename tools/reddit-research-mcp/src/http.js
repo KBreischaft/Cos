@@ -20,6 +20,10 @@ const MAX_WAIT_S = 30; // never sleep longer than this on one 429
 
 export class DeadlineError extends Error {}
 
+const DEBUG = process.env.REDDIT_MCP_DEBUG === "1";
+// Logs go to stderr: stdout is the MCP protocol channel.
+const debug = (...a) => DEBUG && console.error("[reddit-mcp]", ...a);
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIN_GAP_MS = { default: Number(process.env.REDDIT_MCP_MIN_GAP_MS ?? 1000), "api.pullpush.io": Number(process.env.REDDIT_MCP_PULLPUSH_GAP_MS ?? 3000) };
@@ -87,12 +91,18 @@ export async function getJson(url, { deadline } = {}) {
         const ctrl = new AbortController();
         const ms = deadline === undefined ? TIMEOUT_MS : Math.max(250, Math.min(TIMEOUT_MS, deadline - Date.now()));
         const timer = setTimeout(() => ctrl.abort(), ms);
+        const t0 = Date.now();
         try {
           const r = await fetch(url, {
             headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
             signal: ctrl.signal,
           });
-          return { res: r, text: await r.text() };
+          const body = await r.text();
+          debug(`${r.status} ${Date.now() - t0}ms attempt=${attempt} ${url}`);
+          return { res: r, text: body };
+        } catch (e) {
+          debug(`ERR ${e.name} ${Date.now() - t0}ms attempt=${attempt} ${url}`);
+          throw e;
         } finally {
           clearTimeout(timer);
         }
