@@ -43,10 +43,17 @@ test("scoped post search uses Arctic Shift and converts dates", async () => {
   assert.equal(r.json.results[0].permalink, "https://www.reddit.com/r/EIDL/comments/bbb222/x/");
 });
 
-test("site-wide post search falls back to PullPush when Arctic refuses", async () => {
+test("site-wide post search goes straight to PullPush (Arctic rejects unscoped search)", async () => {
+  log.length = 0;
   const r = await call("reddit_search_posts", { query: "EIDL treasury offset" });
   assert.equal(r.json.source, "pullpush");
-  assert.ok(r.json.notes.some((n) => n.startsWith("arctic_shift: HTTP 400")));
+  assert.ok(!log.some((l) => l.startsWith("arctic")), "no wasted Arctic call");
+});
+
+test("forced Arctic Shift on unscoped search surfaces the archive's error text", async () => {
+  const r = await call("reddit_search_posts", { query: "EIDL", source: "arctic_shift" });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /HTTP 400 .*query requires subreddit or author/);
 });
 
 test("order_by=top goes to PullPush first and ranks by score", async () => {
@@ -68,6 +75,25 @@ test("429 with X-RateLimit-Reset is retried", async () => {
   const r = await call("reddit_search_posts", { query: "EIDL", subreddit: "EIDL" });
   setArcticMode("ok");
   assert.equal(r.json.source, "arctic_shift");
+});
+
+test("422 (Arctic overload) is retried", async () => {
+  setArcticMode("422once");
+  const r = await call("reddit_search_posts", { query: "EIDL", subreddit: "EIDL" });
+  setArcticMode("ok");
+  assert.equal(r.json.source, "arctic_shift");
+});
+
+test("research_topic respects its time budget and reports skipped searches", async () => {
+  setArcticMode("slow"); // each Arctic call takes 1.5s
+  const qs = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+  const t0 = Date.now();
+  const r = await call("reddit_research_topic", { queries: qs, subreddits: ["EIDL", "PPP", "SBA", "smallbusiness"], include_sitewide: false, time_budget_s: 10 });
+  setArcticMode("ok");
+  assert.equal(r.json.searches_planned, 80);
+  assert.ok(r.json.searches_run > 0 && r.json.searches_run < 80, `ran ${r.json.searches_run}`);
+  assert.match(r.json.notes[0], /Time budget \(10s\) reached/);
+  assert.ok(Date.now() - t0 < 15000, "returned near the budget");
 });
 
 test("Arctic outage on scoped search falls back to PullPush", async () => {
@@ -95,6 +121,7 @@ test("research_topic fans out, dedupes, and summarizes", async () => {
   const r = await call("reddit_research_topic", { queries: ["EIDL default", "treasury offset"], subreddits: ["EIDL"], after: "2020-03-01" });
   // 2 queries x 2 scopes (r/EIDL + site-wide) x 2 kinds
   assert.equal(r.json.searches_run, 8);
+  assert.equal(r.json.searches_planned, 8);
   const ids = r.json.top_posts.map((p) => p.id);
   assert.equal(new Set(ids).size, ids.length, "no duplicate posts");
   assert.equal(r.json.top_posts[0].id, "ppp333"); // highest engagement

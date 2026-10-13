@@ -1,10 +1,15 @@
-// Small fetch wrapper: timeout, retry with backoff, and 429 handling that honors
-// Arctic Shift's X-RateLimit-Reset header (seconds until the limit resets).
+// Small fetch wrapper: timeout, retry with backoff, and rate-limit handling that
+// honors Arctic Shift's X-RateLimit-Reset header (seconds until the limit resets).
+// Live testing showed both archives throttle with more than 429: Arctic Shift
+// answers 422 under load and PullPush answers 403, and the same request succeeds
+// moments later. Those are retried too; 400 and 404 are not.
 
 const USER_AGENT =
   process.env.REDDIT_MCP_USER_AGENT || "reddit-research-mcp/0.1 (+https://github.com/kbreischaft/cos)";
 const TIMEOUT_MS = Number(process.env.REDDIT_MCP_TIMEOUT_MS || 30000);
-const MAX_RETRIES = Number(process.env.REDDIT_MCP_MAX_RETRIES || 3);
+const MAX_RETRIES = Number(process.env.REDDIT_MCP_MAX_RETRIES ?? 3);
+const RETRYABLE = new Set([403, 408, 422, 425, 429]);
+const isRetryable = (status) => RETRYABLE.has(status) || status >= 500;
 const MAX_WAIT_S = 30; // never sleep longer than this on one 429
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -49,20 +54,20 @@ export async function getJson(url) {
           });
         }
       }
-      const err = new HttpError(`HTTP ${res.status} from ${new URL(url).host}`, {
+      const detail = text.replace(/\s+/g, " ").trim().slice(0, 160);
+      const err = new HttpError(`HTTP ${res.status} from ${new URL(url).host}${detail ? `: ${detail}` : ""}`, {
         status: res.status,
         body: text.slice(0, 500),
         url,
       });
-      // 4xx other than 429 means a bad request: retrying won't help.
-      if (res.status !== 429 && res.status < 500) throw err;
+      if (!isRetryable(res.status)) throw err;
       lastErr = err;
       if (attempt === MAX_RETRIES) break;
       const reset = Number(res.headers.get("x-ratelimit-reset"));
       const waitS = Number.isFinite(reset) && reset > 0 ? Math.min(reset, MAX_WAIT_S) : 2 ** (attempt + 1);
       await sleep(waitS * 1000);
     } catch (e) {
-      if (e instanceof HttpError && e.status && e.status !== 429 && e.status < 500) throw e;
+      if (e instanceof HttpError && e.status && !isRetryable(e.status)) throw e;
       lastErr = e.name === "AbortError" ? new HttpError(`Timed out after ${TIMEOUT_MS}ms: ${url}`, { url }) : e;
       if (attempt === MAX_RETRIES) break;
       await sleep(2 ** (attempt + 1) * 1000);

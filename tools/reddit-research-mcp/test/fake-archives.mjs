@@ -6,7 +6,7 @@ const post = (id, sub, title, score, nc, t) => ({ id, subreddit: sub, author: "u
 const comment = (id, link, sub, body, score, t, replies) => ({ kind: "t1", data: { id, link_id: "t3_" + link, parent_id: "t3_" + link, subreddit: sub, author: "c_" + id, body, score, created_utc: t, permalink: `/r/${sub}/comments/${link}/x/${id}/`, replies: replies ? { kind: "Listing", data: { children: replies } } : "" } });
 
 export const log = [];
-let arcticMode = "ok"; // ok | 429once | down
+let arcticMode = "ok"; // ok | 429once | 422once | down | slow
 export const setArcticMode = (m) => { arcticMode = m; hits429 = 0; };
 let hits429 = 0;
 
@@ -16,6 +16,8 @@ function arcticHandler(req, res) {
   const send = (code, obj, headers = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(obj)); };
   if (arcticMode === "down") return send(503, { error: "maintenance" });
   if (arcticMode === "429once" && hits429++ === 0) return send(429, { error: "rate limited" }, { "x-ratelimit-reset": "1" });
+  if (arcticMode === "422once" && hits429++ === 0) return send(422, { error: "Timeout. Maybe slow down a bit" });
+  if (arcticMode === "slow") return setTimeout(() => { arcticMode = "ok"; arcticHandler(req, res); arcticMode = "slow"; }, 1500);
   const p = u.searchParams;
   if (u.pathname === "/api/posts/search") {
     if (!p.get("subreddit") && !p.get("author")) return send(400, { error: "query requires subreddit or author" });

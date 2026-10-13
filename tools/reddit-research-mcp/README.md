@@ -15,17 +15,18 @@ So this server reads the two public Reddit archives instead. Neither needs a key
 
 | Source | Role | Strengths | Limits |
 |---|---|---|---|
-| [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Primary | Near-real-time, full comment trees, scoped comment full-text search | Sorts by date only. Comment keyword search needs a subreddit, author or post. Scores settle about 36h after posting. Dynamic rate limits. |
-| [PullPush](https://pullpush.io) | Fallback | Site-wide keyword search on posts and comments, sort by score | History of multi-week outages |
+| [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Primary for scoped search | Near-real-time, full comment trees, scoped keyword search on posts and comments | Sorts by date only. Keyword search needs a subreddit, author or post (site-wide returns 400). Scores settle about 36h after posting. Throttles with 422/429. |
+| [PullPush](https://pullpush.io) | Site-wide search, and fallback | Site-wide keyword search on posts and comments, sort by score | Throttles with 403. History of multi-week outages. |
 
 `source: "auto"` (default) picks the best archive for each call and falls back
 automatically. Every response says which source answered and notes any fallback.
+Throttling responses (403, 422, 429, 5xx) are retried with backoff.
 
 ## Tools
 
 | Tool | Use it for |
 |---|---|
-| `reddit_research_topic` | Start here. Runs up to 10 keyword variants across up to 15 subreddits plus site-wide, posts and comments, deduped. Returns top posts, top comments, counts by subreddit and by month. |
+| `reddit_research_topic` | Start here. Runs up to 10 keyword variants across up to 15 subreddits plus site-wide, posts and comments, deduped. Returns top posts, top comments, counts by subreddit and by month. Stops launching searches after `time_budget_s` (default 50s, keeps under client timeouts) and says what it skipped. |
 | `reddit_search_posts` | Targeted post search with date range and `order_by` new/old/top/comments. |
 | `reddit_search_comments` | First-hand accounts. Scope to a subreddit, author or post for best results. |
 | `reddit_get_thread` | One post plus its full comment tree. Accepts an id or any Reddit URL. |
@@ -77,6 +78,12 @@ to route through the session proxy.
 |---|---|
 | `npm test` | Offline. A real MCP client drives the server over stdio against local fake archives: tool listing, date parsing, source routing, fallback, 429 retry, thread flattening, research dedupe and ranking, error handling. |
 | `npm run smoke` | Live. Same stdio round-trip against the real archives with SBA/EIDL queries. Exit code 0 means every check passed. |
+| `npm run sample` | Live. One full SBA COVID loan default research sweep, printed as a digest. |
+
+CI (`.github/workflows/reddit-research-mcp.yml`) runs all three on Linux and Windows
+on every push that touches this folder, then runs `install.ps1` under Windows
+PowerShell 5.1 against a sample Claude Desktop config and launches the server from
+the config it wrote.
 
 ## Configuration (env vars, all optional)
 

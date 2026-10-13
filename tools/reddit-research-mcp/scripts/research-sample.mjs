@@ -14,12 +14,13 @@ const r = await client.callTool({
     after: "2020-03-01",
     per_search_limit: 50,
     top_n: 15,
+    time_budget_s: 150,
   },
-});
+}, undefined, { timeout: 240000 });
 await client.close();
 if (r.isError) { console.log(r.content[0].text); process.exit(1); }
 const j = JSON.parse(r.content[0].text);
-console.log(`Searches: ${j.searches_run} | posts: ${j.totals.posts} | comments: ${j.totals.comments}`);
+console.log(`Searches: ${j.searches_run}/${j.searches_planned} | posts: ${j.totals.posts} | comments: ${j.totals.comments}`);
 console.log("By subreddit:", JSON.stringify(j.by_subreddit));
 console.log("By month:", JSON.stringify(j.by_month));
 console.log("\nTop posts:");

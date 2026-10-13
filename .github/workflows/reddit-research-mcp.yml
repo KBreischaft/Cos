@@ -13,6 +13,8 @@ jobs:
   test:
     strategy:
       fail-fast: false
+      # One at a time: parallel runners hitting the archives throttle each other.
+      max-parallel: 1
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -33,6 +35,8 @@ jobs:
         run: node scripts/research-sample.mjs
 
   installer-windows-powershell-5:
+    needs: test
+    if: always()
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

@@ -13,7 +13,7 @@ let failed = 0;
 async function check(label, tool, args, assertFn) {
   const t0 = Date.now();
   try {
-    const r = await client.callTool({ name: tool, arguments: args });
+    const r = await client.callTool({ name: tool, arguments: args }, undefined, { timeout: 180000 });
     const text = r.content[0].text;
     if (r.isError) throw new Error(text);
     const json = JSON.parse(text);

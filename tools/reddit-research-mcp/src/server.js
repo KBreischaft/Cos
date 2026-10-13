@@ -31,7 +31,8 @@ function sourceOrder(source, { orderBy, scoped, kind }) {
   if (source !== "auto") return [SOURCES[source]];
   // Arctic Shift sorts by date only; for score ranking, or for unscoped comment
   // search (Arctic requires a scope), PullPush is the better first try.
-  if (kind === "comments" && !scoped) return [pullpush];
+  // Live-verified: Arctic Shift returns 400 for unscoped keyword search.
+  if (!scoped) return [pullpush];
   if (orderBy === "top" || orderBy === "comments") return [pullpush, arctic];
   return [arctic, pullpush];
 }
@@ -208,10 +209,25 @@ export function createServer() {
         before: z.string().optional(),
         per_search_limit: z.number().int().min(5).max(100).default(50),
         top_n: z.number().int().min(5).max(100).default(30),
+        time_budget_s: z
+          .number()
+          .int()
+          .min(10)
+          .max(600)
+          .default(50)
+          .describe("Stop launching new searches after this many seconds and return what was found (keeps under client timeouts)."),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async (a) => {
+    async (a, extra) => {
+      const deadline = Date.now() + a.time_budget_s * 1000;
+      const progressToken = extra?._meta?.progressToken;
+      const progress = async (done, total) => {
+        if (progressToken === undefined) return;
+        try {
+          await extra.sendNotification({ method: "notifications/progress", params: { progressToken, progress: done, total } });
+        } catch {}
+      };
       const scopes = [...a.subreddits.map((s) => s.replace(/^\/?r\//i, "")), ...(a.include_sitewide || !a.subreddits.length ? [undefined] : [])];
       const jobs = [];
       for (const q of a.queries) {
@@ -224,8 +240,13 @@ export function createServer() {
       // Run a few at a time to stay polite with the archives' rate limits.
       const results = [];
       const errors = [];
-      const CONCURRENCY = 3;
+      const CONCURRENCY = 4;
+      let skipped = 0;
       for (let i = 0; i < jobs.length; i += CONCURRENCY) {
+        if (Date.now() > deadline) {
+          skipped = jobs.length - i;
+          break;
+        }
         const batch = jobs.slice(i, i + CONCURRENCY);
         const settled = await Promise.allSettled(batch.map((j) => runSearch(j.kind, j.args)));
         settled.forEach((s, k) => {
@@ -238,6 +259,10 @@ export function createServer() {
             errors.push(`${label}: ${s.reason?.message || s.reason}`);
           }
         });
+        await progress(Math.min(i + CONCURRENCY, jobs.length), jobs.length);
+      }
+      if (skipped) {
+        errors.unshift(`Time budget (${a.time_budget_s}s) reached: ${skipped} of ${jobs.length} searches not run. Narrow the queries/subreddits or raise time_budget_s.`);
       }
       if (!results.length) {
         return fail(`reddit_research_topic found nothing. Errors: ${errors.join(" | ") || "none (no matches)"}`);
@@ -249,7 +274,8 @@ export function createServer() {
       const tally = (arr, keyFn) =>
         Object.entries(arr.reduce((m, x) => ((m[keyFn(x)] = (m[keyFn(x)] || 0) + 1), m), {})).sort((p, q) => q[1] - p[1]);
       return ok({
-        searches_run: jobs.length,
+        searches_run: jobs.length - skipped,
+        searches_planned: jobs.length,
         totals: { posts: posts.length, comments: comments.length },
         by_subreddit: Object.fromEntries(tally(all, (x) => x.subreddit).slice(0, 20)),
         by_month: Object.fromEntries(tally(all, (x) => (x.created || "unknown").slice(0, 7)).sort((p, q) => p[0].localeCompare(q[0]))),
