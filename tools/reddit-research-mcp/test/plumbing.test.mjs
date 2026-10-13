@@ -93,13 +93,35 @@ test("research_topic respects its time budget and reports skipped searches", asy
   assert.equal(r.json.searches_planned, 80);
   assert.ok(r.json.searches_run > 0 && r.json.searches_run < 80, `ran ${r.json.searches_run}`);
   assert.match(r.json.notes[0], /Time budget \(10s\) reached/);
-  assert.ok(Date.now() - t0 < 15000, "returned near the budget");
+  const took = Date.now() - t0;
+  assert.ok(took < 12500, `returned near the 10s budget (took ${took}ms)`);
 });
 
 test("requests to one archive never overlap, even during a parallel sweep", async () => {
+  // Let requests abandoned by the previous test finish on the fake server first.
+  while (concurrency.arctic > 0) await new Promise((r) => setTimeout(r, 50));
   concurrency.arcticMax = 0;
   await call("reddit_research_topic", { queries: ["a", "b", "c"], subreddits: ["EIDL", "PPP"], include_sitewide: false });
   assert.equal(concurrency.arcticMax, 1);
+});
+
+test("single searches stop at the per-call budget instead of retrying forever", async () => {
+  // Separate server with a 3s call budget against an archive that is always down.
+  const c = new Client({ name: "budget-test", version: "0" });
+  await c.connect(new StdioClientTransport({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../src/index.js", import.meta.url))],
+    env: { ...process.env, ARCTIC_SHIFT_BASE_URL: fakes.arcticUrl, PULLPUSH_BASE_URL: "http://127.0.0.1:9", REDDIT_MCP_MAX_RETRIES: "10", REDDIT_MCP_CALL_BUDGET_MS: "3000", REDDIT_MCP_MIN_GAP_MS: "50", HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "" },
+  }));
+  setArcticMode("down");
+  const t0 = Date.now();
+  const r = await c.callTool({ name: "reddit_search_posts", arguments: { query: "x", subreddit: "EIDL" } });
+  const took = Date.now() - t0;
+  setArcticMode("ok");
+  await c.close();
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /Time budget reached/);
+  assert.ok(took < 5000, `took ${took}ms`);
 });
 
 test("Arctic outage on scoped search falls back to PullPush", async () => {

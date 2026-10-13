@@ -14,7 +14,7 @@ let hits429 = 0;
 function countedArctic(req, res) {
   concurrency.arctic++;
   concurrency.arcticMax = Math.max(concurrency.arcticMax, concurrency.arctic);
-  res.on("finish", () => concurrency.arctic--);
+  res.on("close", () => concurrency.arctic--);
   setTimeout(() => arcticHandler(req, res), 40); // window in which overlapping requests would show
 
 }

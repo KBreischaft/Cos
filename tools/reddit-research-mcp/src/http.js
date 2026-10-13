@@ -18,6 +18,8 @@ const RETRYABLE = new Set([403, 408, 422, 425, 429]);
 const isRetryable = (status) => RETRYABLE.has(status) || status >= 500;
 const MAX_WAIT_S = 30; // never sleep longer than this on one 429
 
+export class DeadlineError extends Error {}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIN_GAP_MS = { default: Number(process.env.REDDIT_MCP_MIN_GAP_MS ?? 1000), "api.pullpush.io": Number(process.env.REDDIT_MCP_PULLPUSH_GAP_MS ?? 3000) };
@@ -32,12 +34,16 @@ function cooldown(host, ms) {
 }
 
 // Run fn with exclusive access to host, at least MIN_GAP_MS after the previous call ended.
-function paced(host, fn) {
+// If the required wait would run past `deadline`, fail now instead of waiting.
+function paced(host, fn, deadline) {
   const q = hostQueues.get(host) || { tail: Promise.resolve(), last: 0 };
   hostQueues.set(host, q);
   const gap = MIN_GAP_MS[host] ?? MIN_GAP_MS.default;
   const run = q.tail.then(async () => {
     const wait = q.last + gap - Date.now();
+    if (deadline !== undefined && Date.now() + Math.max(wait, 0) >= deadline) {
+      throw new DeadlineError(`Time budget reached while queued for ${host}`);
+    }
     if (wait > 0) await sleep(wait);
     try {
       return await fn();
@@ -67,14 +73,20 @@ export function buildUrl(base, path, params = {}) {
   return url.toString();
 }
 
-export async function getJson(url) {
+// deadline (epoch ms, optional): give up rather than start or retry a request
+// after this point, so a tool call never outlasts its budget.
+export async function getJson(url, { deadline } = {}) {
   let lastErr;
+  const late = () => deadline !== undefined && Date.now() >= deadline;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (late()) throw new DeadlineError(`Time budget reached before ${new URL(url).host} answered${lastErr ? ` (last error: ${lastErr.message})` : ""}`);
     try {
       const { res, text } = await paced(new URL(url).host, async () => {
+        if (late()) throw new DeadlineError(`Time budget reached while queued for ${new URL(url).host}`);
         // Timer starts only once this request has its turn, not while queued.
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+        const ms = deadline === undefined ? TIMEOUT_MS : Math.max(250, Math.min(TIMEOUT_MS, deadline - Date.now()));
+        const timer = setTimeout(() => ctrl.abort(), ms);
         try {
           const r = await fetch(url, {
             headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
@@ -84,7 +96,7 @@ export async function getJson(url) {
         } finally {
           clearTimeout(timer);
         }
-      });
+      }, deadline);
       if (res.ok) {
         try {
           return JSON.parse(text);
@@ -110,7 +122,9 @@ export async function getJson(url) {
       // Throttled: back the whole host queue off, not just this request.
       cooldown(new URL(url).host, waitS * 1000);
     } catch (e) {
+      if (e instanceof DeadlineError) throw e;
       if (e instanceof HttpError && e.status && !isRetryable(e.status)) throw e;
+      if (e.name === "AbortError" && late()) throw new DeadlineError(`Time budget reached while waiting on ${new URL(url).host}`);
       lastErr = e.name === "AbortError" ? new HttpError(`Timed out after ${TIMEOUT_MS}ms: ${url}`, { url }) : e;
       if (attempt === MAX_RETRIES) break;
       cooldown(new URL(url).host, 2 ** (attempt + 1) * 1000);

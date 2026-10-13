@@ -10,6 +10,11 @@ export const VERSION = "0.1.0";
 
 const SOURCES = { arctic_shift: arctic, pullpush };
 
+// Hard cap per tool call (except the research sweep, which has its own budget),
+// so a slow or throttling archive can't outlast the client's tool timeout.
+const CALL_BUDGET_MS = Number(process.env.REDDIT_MCP_CALL_BUDGET_MS ?? 45000);
+const callDeadline = () => Date.now() + CALL_BUDGET_MS;
+
 const commonShape = {
   query: z.string().min(1).describe('Keywords. Supports "exact phrase", OR, and -exclude (archive syntax).'),
   subreddit: z.string().optional().describe("Limit to one subreddit, without r/ (e.g. EIDL)."),
@@ -55,8 +60,9 @@ function stripInternal(item) {
 const ok = (payload) => ({ content: [{ type: "text", text: JSON.stringify(payload, null, 1) }] });
 const fail = (msg) => ({ content: [{ type: "text", text: msg }], isError: true });
 
-async function runSearch(kind, a) {
+async function runSearch(kind, a, deadline = callDeadline()) {
   const args = {
+    deadline,
     query: a.query,
     subreddit: a.subreddit?.replace(/^\/?r\//i, ""),
     author: a.author?.replace(/^\/?u\//i, ""),
@@ -137,14 +143,15 @@ export function createServer() {
     async ({ post, max_comments }) => {
       try {
         const id = parsePostId(post);
+        const deadline = callDeadline();
         const notes = [];
         let p = null;
         try {
-          p = await arctic.getPost(id);
+          p = await arctic.getPost(id, deadline);
         } catch (e) {
           notes.push(`post lookup: ${e.message}`);
         }
-        const comments = await arctic.getCommentTree(id, max_comments);
+        const comments = await arctic.getCommentTree(id, max_comments, deadline);
         const truncated = comments.filter((c) => c.type === "more").reduce((n, c) => n + c.count, 0);
         if (truncated) notes.push(`${truncated} comments not expanded by the archive.`);
         return ok({
@@ -176,7 +183,7 @@ export function createServer() {
     },
     async ({ prefix, min_subscribers, limit }) => {
       try {
-        const items = await arctic.findSubreddits({ prefix: prefix.replace(/^\/?r\//i, ""), minSubscribers: min_subscribers, limit });
+        const items = await arctic.findSubreddits({ prefix: prefix.replace(/^\/?r\//i, ""), minSubscribers: min_subscribers, limit, deadline: callDeadline() });
         return ok({ source: "arctic_shift", count: items.length, results: items });
       } catch (e) {
         return fail(`reddit_find_subreddits failed: ${e.message}`);
@@ -243,18 +250,20 @@ export function createServer() {
       const CONCURRENCY = 4;
       let skipped = 0;
       for (let i = 0; i < jobs.length; i += CONCURRENCY) {
-        if (Date.now() > deadline) {
-          skipped = jobs.length - i;
+        if (Date.now() >= deadline) {
+          skipped += jobs.length - i;
           break;
         }
         const batch = jobs.slice(i, i + CONCURRENCY);
-        const settled = await Promise.allSettled(batch.map((j) => runSearch(j.kind, j.args)));
+        const settled = await Promise.allSettled(batch.map((j) => runSearch(j.kind, j.args, deadline)));
         settled.forEach((s, k) => {
           const j = batch[k];
           const label = `${j.kind} "${j.q}" in ${j.sub ? "r/" + j.sub : "all of Reddit"}`;
           if (s.status === "fulfilled") {
             for (const it of s.value.results) results.push({ ...it, matched_query: j.q });
             if (s.value.notes.length) errors.push(`${label}: ${s.value.notes.join("; ")}`);
+          } else if (/Time budget reached/.test(s.reason?.message)) {
+            skipped++;
           } else {
             errors.push(`${label}: ${s.reason?.message || s.reason}`);
           }
