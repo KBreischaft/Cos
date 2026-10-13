@@ -168,6 +168,25 @@ test("a struggling primary archive can't starve the fallback of time", async () 
   assert.ok(took < 5500, `took ${took}ms`);
 });
 
+test("REDDIT_MCP_DISABLE_PULLPUSH=1 keeps every request off PullPush", async () => {
+  log.length = 0;
+  const c = new Client({ name: "no-pullpush", version: "0" });
+  await c.connect(new StdioClientTransport({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../src/index.js", import.meta.url))],
+    env: { ...process.env, ARCTIC_SHIFT_BASE_URL: fakes.arcticUrl, PULLPUSH_BASE_URL: fakes.pullpushUrl, REDDIT_MCP_DISABLE_PULLPUSH: "1", REDDIT_MCP_MAX_RETRIES: "0", REDDIT_MCP_MIN_GAP_MS: "50", HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "" },
+  }));
+  const site = await c.callTool({ name: "reddit_search_posts", arguments: { query: "x" } });
+  assert.equal(site.isError, true);
+  assert.match(site.content[0].text, /PullPush, which is disabled/);
+  setArcticMode("down");
+  const scoped = await c.callTool({ name: "reddit_search_posts", arguments: { query: "x", subreddit: "EIDL" } });
+  setArcticMode("ok");
+  assert.equal(scoped.isError, true);
+  await c.close();
+  assert.ok(!log.some((l) => l.startsWith("pullpush")));
+});
+
 test("Arctic outage on scoped search falls back to PullPush", async () => {
   setArcticMode("down");
   const r = await call("reddit_search_posts", { query: "EIDL", subreddit: "EIDL" });

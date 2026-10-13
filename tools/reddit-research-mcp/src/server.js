@@ -10,6 +10,11 @@ export const VERSION = "0.1.0";
 
 const SOURCES = { arctic_shift: arctic, pullpush };
 
+// PullPush's rate-limit message says it "does not provide free scraping resources
+// for agents". REDDIT_MCP_DISABLE_PULLPUSH=1 removes it entirely (site-wide search
+// then requires a subreddit or author).
+const PULLPUSH_ON = process.env.REDDIT_MCP_DISABLE_PULLPUSH !== "1";
+
 // Hard cap per tool call (except the research sweep, which has its own budget),
 // so a slow or throttling archive can't outlast the client's tool timeout.
 const CALL_BUDGET_MS = Number(process.env.REDDIT_MCP_CALL_BUDGET_MS ?? 45000);
@@ -39,12 +44,16 @@ const commonShape = {
 // - Arctic Shift sorts by date only; for order_by top/comments on scoped search the
 //   results are ranked within the fetched window (and the response says so).
 function sourceOrder(source, { scoped, kind, sweep }) {
+  if (source === "pullpush" && !PULLPUSH_ON) throw new Error("PullPush is disabled (REDDIT_MCP_DISABLE_PULLPUSH=1)");
   if (source !== "auto") return [SOURCES[source]];
-  if (!scoped) return [pullpush];
+  if (!scoped) {
+    if (!PULLPUSH_ON) throw new Error("Site-wide search needs PullPush, which is disabled. Add a subreddit or author.");
+    return [pullpush];
+  }
   const arcticChain = kind === "posts" ? [arctic, arcticTitle] : [arctic];
   // In a multi-search sweep, never spill scoped searches onto PullPush: one
   // Arctic hiccup would otherwise send every search there at once.
-  if (sweep) return arcticChain;
+  if (sweep || !PULLPUSH_ON) return arcticChain;
   return [...arcticChain, pullpush];
 }
 

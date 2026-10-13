@@ -27,7 +27,8 @@ least 1s apart for Arctic Shift and 3s apart for PullPush, and a throttle backs 
 the whole queue. Live tests with parallel requests got "Timeout. Maybe slow down a
 bit" from Arctic Shift and a 429 from PullPush stating it "does not provide free
 scraping resources for agents" (it points heavy users to its admin on Discord).
-Keep PullPush as a low-volume fallback. Tune with `REDDIT_MCP_MIN_GAP_MS` and
+Keep PullPush as a low-volume fallback, or set `REDDIT_MCP_DISABLE_PULLPUSH=1` to
+honor that policy strictly. For regular heavy use, ask the PullPush admin for access. Tune with `REDDIT_MCP_MIN_GAP_MS` and
 `REDDIT_MCP_PULLPUSH_GAP_MS`.
 
 ## Tools
@@ -101,6 +102,8 @@ the config it wrote.
 | `PULLPUSH_BASE_URL` | `https://api.pullpush.io` |
 | `REDDIT_MCP_TIMEOUT_MS` | `30000` |
 | `REDDIT_MCP_MAX_RETRIES` | `3` (backoff, honors `X-RateLimit-Reset`) |
+| `REDDIT_MCP_DISABLE_PULLPUSH` | unset (`1` = never call PullPush; site-wide search then needs a subreddit or author) |
+| `REDDIT_MCP_DEBUG` | unset (`1` = log every request with status and latency to stderr) |
 | `REDDIT_MCP_CALL_BUDGET_MS` | `45000` (hard cap per search/thread/subreddit call, including retries) |
 | `REDDIT_MCP_MIN_GAP_MS` | `1000` (per-host gap; Arctic Shift) |
 | `REDDIT_MCP_PULLPUSH_GAP_MS` | `3000` |

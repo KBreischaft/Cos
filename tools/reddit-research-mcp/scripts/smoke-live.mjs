@@ -10,7 +10,11 @@ const client = new Client({ name: "smoke-live", version: "0" });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [server], env: process.env, stderr: "inherit" }));
 
 let failed = 0;
-async function check(label, tool, args, assertFn) {
+let rateLimited = 0;
+// An upstream 429 is the archive declining service (PullPush throttles shared
+// cloud IPs), not a defect in this server. With { soft: true } it is reported
+// as RATE-LIMITED instead of FAIL; any other error still fails the run.
+async function check(label, tool, args, assertFn, { soft = false } = {}) {
   const t0 = Date.now();
   try {
     const r = await client.callTool({ name: tool, arguments: args }, undefined, { timeout: 180000 });
@@ -21,8 +25,14 @@ async function check(label, tool, args, assertFn) {
     console.log(`PASS  ${label}  (${Date.now() - t0} ms)  ${detail}`);
     return json;
   } catch (e) {
+    const msg = String(e.message);
+    if (soft && /HTTP 429/.test(msg) && !/HTTP (?!429)\d{3}/.test(msg)) {
+      rateLimited++;
+      console.log(`RATE-LIMITED  ${label}  (${Date.now() - t0} ms)  ${msg.slice(0, 200)}`);
+      return null;
+    }
     failed++;
-    console.log(`FAIL  ${label}  (${Date.now() - t0} ms)  ${String(e.message).slice(0, 400)}`);
+    console.log(`FAIL  ${label}  (${Date.now() - t0} ms)  ${msg.slice(0, 400)}`);
   }
 }
 const need = (cond, msg) => { if (!cond) throw new Error(msg); };
@@ -36,13 +46,21 @@ await check("Comments in r/EIDL (auto)", "reddit_search_comments",
   { query: "treasury offset", subreddit: "EIDL", limit: 10 },
   (j) => { need(j.count > 0, "no results"); return `${j.count} via ${j.source}`; });
 
-await check("Site-wide posts (auto)", "reddit_search_posts",
+const sitePosts = await check("Site-wide posts (auto)", "reddit_search_posts",
   { query: "EIDL default", limit: 10 },
-  (j) => { need(j.count > 0, "no results"); return `${j.count} via ${j.source} across ${new Set(j.results.map((r) => r.subreddit)).size} subreddits`; });
+  (j) => { need(j.count > 0, "no results"); return `${j.count} via ${j.source} across ${new Set(j.results.map((r) => r.subreddit)).size} subreddits`; },
+  { soft: true });
 
-await check("Site-wide comments (auto)", "reddit_search_comments",
+const siteComments = await check("Site-wide comments (auto)", "reddit_search_comments",
   { query: "EIDL hardship accommodation", limit: 10 },
-  (j) => { need(j.count > 0, "no results"); return `${j.count} via ${j.source}`; });
+  (j) => { need(j.count > 0, "no results"); return `${j.count} via ${j.source}`; },
+  { soft: true });
+
+// Site-wide search must be proven working at least once per run.
+if (!sitePosts && !siteComments) {
+  failed++;
+  console.log("FAIL  Site-wide search: neither posts nor comments succeeded this run");
+}
 
 const threadId = posts?.results?.find((p) => p.num_comments > 0)?.id || posts?.results?.[0]?.id;
 if (threadId) {
@@ -70,5 +88,6 @@ await check("Research sweep: SBA COVID loans in default", "reddit_research_topic
   (j) => { need(j.totals.posts + j.totals.comments > 0, "no results"); return `${j.searches_run} searches -> ${j.totals.posts} posts, ${j.totals.comments} comments; top: "${(j.top_posts[0]?.title || j.top_comments[0]?.text || '').slice(0, 60)}"; ${j.notes.length} notes`; });
 
 await client.close();
-console.log(failed ? `\n${failed} check(s) FAILED` : "\nAll live checks passed.");
+if (rateLimited) console.log(`\n${rateLimited} check(s) rate-limited by an upstream archive (reported, not counted as failures).`);
+console.log(failed ? `\n${failed} check(s) FAILED` : "\nAll required live checks passed.");
 process.exit(failed ? 1 : 0);
