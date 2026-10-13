@@ -96,6 +96,26 @@ export const arctic = {
   },
 };
 
+// Same archive, title-only keyword match. Live diagnostics: when Arctic Shift's
+// full-text post search timed out server-side, title search often still answered.
+export const arcticTitle = {
+  name: "arctic_shift_title",
+
+  async searchPosts({ query, subreddit, author, after, before, limit, sort, deadline }) {
+    if (!subreddit && !author) throw new Error("title search needs a subreddit or author");
+    const url = buildUrl(ARCTIC, "api/posts/search", {
+      title: query,
+      subreddit,
+      author,
+      after,
+      before,
+      limit: clampLimit(limit),
+      sort: sort === "asc" ? "asc" : "desc",
+    });
+    return unwrap(await getJson(url, deadline)).map((p) => normalizePost(p, this.name));
+  },
+};
+
 // ---------- PullPush ----------
 
 const PP_SORT = { new: ["created_utc", "desc"], old: ["created_utc", "asc"], top: ["score", "desc"], comments: ["num_comments", "desc"] };

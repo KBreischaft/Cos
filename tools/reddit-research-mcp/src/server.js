@@ -3,7 +3,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { arctic, pullpush, firstAvailable } from "./sources.js";
+import { arctic, arcticTitle, pullpush, firstAvailable } from "./sources.js";
 import { dedupe, parsePostId, toEpoch } from "./normalize.js";
 
 export const VERSION = "0.1.0";
@@ -32,14 +32,20 @@ const commonShape = {
     .describe("auto tries the best archive first and falls back on failure."),
 };
 
-function sourceOrder(source, { orderBy, scoped, kind }) {
+// Routing, from live testing (Oct 2026):
+// - Arctic Shift rejects unscoped keyword search (400).
+// - PullPush answers site-wide search reliably but rate-limits subreddit-scoped
+//   queries (429) almost every time, so it is the last resort for scoped search.
+// - Arctic Shift sorts by date only; for order_by top/comments on scoped search the
+//   results are ranked within the fetched window (and the response says so).
+function sourceOrder(source, { scoped, kind, sweep }) {
   if (source !== "auto") return [SOURCES[source]];
-  // Arctic Shift sorts by date only; for score ranking, or for unscoped comment
-  // search (Arctic requires a scope), PullPush is the better first try.
-  // Live-verified: Arctic Shift returns 400 for unscoped keyword search.
   if (!scoped) return [pullpush];
-  if (orderBy === "top" || orderBy === "comments") return [pullpush, arctic];
-  return [arctic, pullpush];
+  const arcticChain = kind === "posts" ? [arctic, arcticTitle] : [arctic];
+  // In a multi-search sweep, never spill scoped searches onto PullPush: one
+  // Arctic hiccup would otherwise send every search there at once.
+  if (sweep) return arcticChain;
+  return [...arcticChain, pullpush];
 }
 
 function rank(items, orderBy) {
@@ -74,12 +80,12 @@ async function runSearch(kind, a, deadline = callDeadline()) {
     sort: a.order_by === "old" ? "asc" : "desc",
   };
   const scoped = Boolean(args.subreddit || args.author || args.postId);
-  const order = sourceOrder(a.source, { orderBy: a.order_by, scoped, kind });
+  const order = sourceOrder(a.source, { scoped, kind, sweep: a.sweep });
   const method = kind === "posts" ? "searchPosts" : "searchComments";
   const res = await firstAvailable(order, method, args);
   const items = rank(res.items, a.order_by).map(stripInternal);
   const notes = [...res.notes];
-  if (res.source === "arctic_shift" && (a.order_by === "top" || a.order_by === "comments")) {
+  if (res.source.startsWith("arctic_shift") && (a.order_by === "top" || a.order_by === "comments")) {
     notes.push("Arctic Shift returns by date; ranking applied only within the fetched window.");
   }
   return { source: res.source, count: items.length, notes, results: items };
@@ -242,7 +248,7 @@ export function createServer() {
       const jobs = [];
       for (const q of a.queries) {
         for (const sub of scopes) {
-          const base = { query: q, subreddit: sub, after: a.after, before: a.before, limit: a.per_search_limit, order_by: "new", source: "auto" };
+          const base = { query: q, subreddit: sub, after: a.after, before: a.before, limit: a.per_search_limit, order_by: "new", source: "auto", sweep: true };
           jobs.push({ kind: "posts", q, sub, args: base });
           if (a.include_comments) jobs.push({ kind: "comments", q, sub, args: base });
         }

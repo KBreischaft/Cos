@@ -127,8 +127,12 @@ export async function getJson(url, { deadline } = {}) {
       if (!isRetryable(res.status)) throw err;
       lastErr = err;
       if (attempt === MAX_RETRIES) break;
+      // Only a real 429 waits for the rate-limit window to reset. Arctic Shift's
+      // 422 "Timeout" also carries X-RateLimit-Reset, but live diagnostics showed
+      // a retry 2-4s later usually succeeds, so 422s get short backoff.
       const reset = Number(res.headers.get("x-ratelimit-reset"));
-      const waitS = Number.isFinite(reset) && reset > 0 ? Math.min(reset, MAX_WAIT_S) : 2 ** (attempt + 1);
+      const waitS =
+        res.status === 429 && Number.isFinite(reset) && reset > 0 ? Math.min(reset, MAX_WAIT_S) : 2 ** (attempt + 1);
       // Throttled: back the whole host queue off, not just this request.
       cooldown(new URL(url).host, waitS * 1000);
     } catch (e) {

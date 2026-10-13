@@ -7,7 +7,7 @@ const comment = (id, link, sub, body, score, t, replies) => ({ kind: "t1", data:
 
 export const log = [];
 export const concurrency = { arctic: 0, arcticMax: 0 };
-let arcticMode = "ok"; // ok | 429once | 422once | down | slow
+let arcticMode = "ok"; // ok | 429once | 422once | query422 | down | slow | hang
 export const setArcticMode = (m) => { arcticMode = m; hits429 = 0; };
 let hits429 = 0;
 
@@ -24,6 +24,9 @@ function arcticHandler(req, res) {
   log.push("arctic " + u.pathname + u.search);
   const send = (code, obj, headers = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(obj)); };
   if (arcticMode === "down") return send(503, { error: "maintenance" });
+  if (arcticMode === "query422" && u.pathname === "/api/posts/search" && u.searchParams.get("query")) {
+    return send(422, { data: null, error: "Timeout. Maybe slow down a bit" }, { "x-ratelimit-reset": "55" });
+  }
   if (arcticMode === "hang") return setTimeout(() => send(503, { error: "late" }), 15000);
   if (arcticMode === "429once" && hits429++ === 0) return send(429, { error: "rate limited" }, { "x-ratelimit-reset": "1" });
   if (arcticMode === "422once" && hits429++ === 0) return send(422, { error: "Timeout. Maybe slow down a bit" });

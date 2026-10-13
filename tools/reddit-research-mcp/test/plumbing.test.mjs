@@ -56,10 +56,35 @@ test("forced Arctic Shift on unscoped search surfaces the archive's error text",
   assert.match(r.text, /HTTP 400 .*query requires subreddit or author/);
 });
 
-test("order_by=top goes to PullPush first and ranks by score", async () => {
-  const r = await call("reddit_search_posts", { query: "EIDL", subreddit: "EIDL", order_by: "top" });
-  assert.equal(r.json.source, "pullpush");
-  assert.equal(r.json.results[0].score, 300);
+test("order_by=top: site-wide goes to PullPush; scoped stays on Arctic and ranks by score", async () => {
+  const g = await call("reddit_search_posts", { query: "EIDL", order_by: "top" });
+  assert.equal(g.json.source, "pullpush");
+  assert.equal(g.json.results[0].score, 300);
+  const s = await call("reddit_search_posts", { query: "EIDL", subreddit: "EIDL", order_by: "top" });
+  assert.equal(s.json.source, "arctic_shift");
+  assert.equal(s.json.results[0].score, 90);
+  assert.ok(s.json.notes.some((n) => n.includes("ranking applied only within the fetched window")));
+});
+
+test("when Arctic full-text post search keeps timing out, Arctic title search answers", async () => {
+  log.length = 0;
+  setArcticMode("query422");
+  const t0 = Date.now();
+  const r = await call("reddit_search_posts", { query: "default", subreddit: "EIDL" });
+  setArcticMode("ok");
+  assert.equal(r.json.source, "arctic_shift_title");
+  assert.ok(log.some((l) => l.includes("title=default")));
+  assert.ok(!log.some((l) => l.startsWith("pullpush")), "PullPush not touched");
+  // 422 uses short backoff, not the 55s X-RateLimit-Reset.
+  assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0}ms`);
+});
+
+test("sweeps keep subreddit searches off PullPush even when Arctic struggles", async () => {
+  log.length = 0;
+  setArcticMode("down");
+  await call("reddit_research_topic", { queries: ["a"], subreddits: ["EIDL", "PPP"], include_sitewide: false, time_budget_s: 10 });
+  setArcticMode("ok");
+  assert.ok(!log.some((l) => l.startsWith("pullpush")), log.filter((l) => l.startsWith("pullpush")).join("\n"));
 });
 
 test("unscoped comment search uses PullPush; scoped uses Arctic", async () => {
