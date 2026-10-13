@@ -24,6 +24,7 @@ function arcticHandler(req, res) {
   log.push("arctic " + u.pathname + u.search);
   const send = (code, obj, headers = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(obj)); };
   if (arcticMode === "down") return send(503, { error: "maintenance" });
+  if (arcticMode === "hang") return setTimeout(() => send(503, { error: "late" }), 15000);
   if (arcticMode === "429once" && hits429++ === 0) return send(429, { error: "rate limited" }, { "x-ratelimit-reset": "1" });
   if (arcticMode === "422once" && hits429++ === 0) return send(422, { error: "Timeout. Maybe slow down a bit" });
   if (arcticMode === "slow") return setTimeout(() => { arcticMode = "ok"; arcticHandler(req, res); arcticMode = "slow"; }, 1500);

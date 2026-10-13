@@ -131,7 +131,7 @@ test("a struggling primary archive can't starve the fallback of time", async () 
     args: [fileURLToPath(new URL("../src/index.js", import.meta.url))],
     env: { ...process.env, ARCTIC_SHIFT_BASE_URL: fakes.arcticUrl, PULLPUSH_BASE_URL: fakes.pullpushUrl, REDDIT_MCP_MAX_RETRIES: "20", REDDIT_MCP_CALL_BUDGET_MS: "5000", REDDIT_MCP_MIN_GAP_MS: "50", REDDIT_MCP_PULLPUSH_GAP_MS: "50", HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "" },
   }));
-  setArcticMode("down");
+  setArcticMode("hang"); // never answers within the budget
   const t0 = Date.now();
   const r = await c.callTool({ name: "reddit_search_posts", arguments: { query: "x", subreddit: "EIDL" } });
   const took = Date.now() - t0;
