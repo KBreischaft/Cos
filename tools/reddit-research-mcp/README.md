@@ -22,11 +22,19 @@ So this server reads the two public Reddit archives instead. Neither needs a key
 automatically. Every response says which source answered and notes any fallback.
 Throttling responses (403, 422, 429, 5xx) are retried with backoff.
 
+**Pacing (polite by design).** Requests to each archive run one at a time, at
+least 1s apart for Arctic Shift and 3s apart for PullPush, and a throttle backs off
+the whole queue. Live tests with parallel requests got "Timeout. Maybe slow down a
+bit" from Arctic Shift and a 429 from PullPush stating it "does not provide free
+scraping resources for agents" (it points heavy users to its admin on Discord).
+Keep PullPush as a low-volume fallback. Tune with `REDDIT_MCP_MIN_GAP_MS` and
+`REDDIT_MCP_PULLPUSH_GAP_MS`.
+
 ## Tools
 
 | Tool | Use it for |
 |---|---|
-| `reddit_research_topic` | Start here. Runs up to 10 keyword variants across up to 15 subreddits plus site-wide, posts and comments, deduped. Returns top posts, top comments, counts by subreddit and by month. Stops launching searches after `time_budget_s` (default 50s, keeps under client timeouts) and says what it skipped. |
+| `reddit_research_topic` | Start here. Runs up to 10 keyword variants across up to 15 subreddits plus site-wide, posts and comments, deduped. Returns top posts, top comments, counts by subreddit and by month. Stops launching searches after `time_budget_s` (default 50s, keeps under client timeouts) and says what it skipped. Because of pacing, expect roughly 15 to 25 searches per 50s; raise the budget for bigger sweeps. |
 | `reddit_search_posts` | Targeted post search with date range and `order_by` new/old/top/comments. |
 | `reddit_search_comments` | First-hand accounts. Scope to a subreddit, author or post for best results. |
 | `reddit_get_thread` | One post plus its full comment tree. Accepts an id or any Reddit URL. |
@@ -93,6 +101,8 @@ the config it wrote.
 | `PULLPUSH_BASE_URL` | `https://api.pullpush.io` |
 | `REDDIT_MCP_TIMEOUT_MS` | `30000` |
 | `REDDIT_MCP_MAX_RETRIES` | `3` (backoff, honors `X-RateLimit-Reset`) |
+| `REDDIT_MCP_MIN_GAP_MS` | `1000` (per-host gap; Arctic Shift) |
+| `REDDIT_MCP_PULLPUSH_GAP_MS` | `3000` |
 | `REDDIT_MCP_USER_AGENT` | `reddit-research-mcp/0.1 (...)` |
 
 ## Known limits and next steps

@@ -6,9 +6,18 @@ const post = (id, sub, title, score, nc, t) => ({ id, subreddit: sub, author: "u
 const comment = (id, link, sub, body, score, t, replies) => ({ kind: "t1", data: { id, link_id: "t3_" + link, parent_id: "t3_" + link, subreddit: sub, author: "c_" + id, body, score, created_utc: t, permalink: `/r/${sub}/comments/${link}/x/${id}/`, replies: replies ? { kind: "Listing", data: { children: replies } } : "" } });
 
 export const log = [];
+export const concurrency = { arctic: 0, arcticMax: 0 };
 let arcticMode = "ok"; // ok | 429once | 422once | down | slow
 export const setArcticMode = (m) => { arcticMode = m; hits429 = 0; };
 let hits429 = 0;
+
+function countedArctic(req, res) {
+  concurrency.arctic++;
+  concurrency.arcticMax = Math.max(concurrency.arcticMax, concurrency.arctic);
+  res.on("finish", () => concurrency.arctic--);
+  setTimeout(() => arcticHandler(req, res), 40); // window in which overlapping requests would show
+
+}
 
 function arcticHandler(req, res) {
   const u = new URL(req.url, "http://x");
@@ -46,7 +55,7 @@ function pullpushHandler(req, res) {
 }
 
 export async function start() {
-  const a = http.createServer(arcticHandler);
+  const a = http.createServer(countedArctic);
   const b = http.createServer(pullpushHandler);
   await new Promise((r) => a.listen(0, "127.0.0.1", r));
   await new Promise((r) => b.listen(0, "127.0.0.1", r));

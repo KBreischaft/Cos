@@ -9,6 +9,11 @@ on:
       - ".github/workflows/reddit-research-mcp.yml"
   workflow_dispatch:
 
+# Never run two of these at once: they share the archives' rate limits.
+concurrency:
+  group: reddit-research-mcp-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:

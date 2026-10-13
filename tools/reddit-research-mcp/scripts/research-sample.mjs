@@ -9,10 +9,10 @@ await client.connect(new StdioClientTransport({ command: process.execPath, args:
 const r = await client.callTool({
   name: "reddit_research_topic",
   arguments: {
-    queries: ["EIDL default", "EIDL treasury offset", "EIDL Cross-Servicing", "SBA hardship accommodation", "PPP loan default"],
-    subreddits: ["EIDL", "PPP", "smallbusiness", "SBA"],
+    queries: ["EIDL default", "EIDL treasury offset", "EIDL Cross-Servicing"],
+    subreddits: ["EIDL", "EIDLPPP", "smallbusiness"],
     after: "2020-03-01",
-    per_search_limit: 50,
+    per_search_limit: 40,
     top_n: 15,
     time_budget_s: 150,
   },

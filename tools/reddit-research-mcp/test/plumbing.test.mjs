@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
-import { start, log, setArcticMode } from "./fake-archives.mjs";
+import { start, log, setArcticMode, concurrency } from "./fake-archives.mjs";
 
 let fakes, client;
 const call = async (name, args) => {
@@ -22,7 +22,7 @@ before(async () => {
   await client.connect(new StdioClientTransport({
     command: process.execPath,
     args: [fileURLToPath(new URL("../src/index.js", import.meta.url))],
-    env: { ...process.env, ARCTIC_SHIFT_BASE_URL: fakes.arcticUrl, PULLPUSH_BASE_URL: fakes.pullpushUrl, REDDIT_MCP_MAX_RETRIES: "1", HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "" },
+    env: { ...process.env, ARCTIC_SHIFT_BASE_URL: fakes.arcticUrl, PULLPUSH_BASE_URL: fakes.pullpushUrl, REDDIT_MCP_MAX_RETRIES: "1", REDDIT_MCP_MIN_GAP_MS: "50", REDDIT_MCP_PULLPUSH_GAP_MS: "50", HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "" },
   }));
 });
 after(async () => { await client?.close(); fakes?.close(); });
@@ -94,6 +94,12 @@ test("research_topic respects its time budget and reports skipped searches", asy
   assert.ok(r.json.searches_run > 0 && r.json.searches_run < 80, `ran ${r.json.searches_run}`);
   assert.match(r.json.notes[0], /Time budget \(10s\) reached/);
   assert.ok(Date.now() - t0 < 15000, "returned near the budget");
+});
+
+test("requests to one archive never overlap, even during a parallel sweep", async () => {
+  concurrency.arcticMax = 0;
+  await call("reddit_research_topic", { queries: ["a", "b", "c"], subreddits: ["EIDL", "PPP"], include_sitewide: false });
+  assert.equal(concurrency.arcticMax, 1);
 });
 
 test("Arctic outage on scoped search falls back to PullPush", async () => {
