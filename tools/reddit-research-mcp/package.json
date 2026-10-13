@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/plumbing.test.mjs",
-    "smoke": "node scripts/smoke-live.mjs"
+    "smoke": "node scripts/smoke-live.mjs",
+    "sample": "node scripts/research-sample.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

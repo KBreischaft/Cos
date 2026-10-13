@@ -6,6 +6,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { fileURLToPath } from "node:url";
 import { start, log, setArcticMode } from "./fake-archives.mjs";
 
 let fakes, client;
@@ -20,7 +21,7 @@ before(async () => {
   client = new Client({ name: "plumbing-test", version: "0" });
   await client.connect(new StdioClientTransport({
     command: process.execPath,
-    args: [new URL("../src/index.js", import.meta.url).pathname],
+    args: [fileURLToPath(new URL("../src/index.js", import.meta.url))],
     env: { ...process.env, ARCTIC_SHIFT_BASE_URL: fakes.arcticUrl, PULLPUSH_BASE_URL: fakes.pullpushUrl, REDDIT_MCP_MAX_RETRIES: "1", HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "" },
   }));
 });

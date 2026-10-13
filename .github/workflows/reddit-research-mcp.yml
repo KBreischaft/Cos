@@ -1,0 +1,63 @@
+# Builds and tests tools/reddit-research-mcp on Linux and Windows, including the
+# live smoke test against the real Reddit archives and the PowerShell installer.
+name: reddit-research-mcp
+
+on:
+  push:
+    paths:
+      - "tools/reddit-research-mcp/**"
+      - ".github/workflows/reddit-research-mcp.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: tools/reddit-research-mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Offline plumbing tests
+        run: npm test
+      - name: Live smoke test (real archives)
+        run: npm run smoke
+      - name: Live research sample (SBA COVID loans in default)
+        run: node scripts/research-sample.mjs
+
+  installer-windows-powershell-5:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run install.ps1 under Windows PowerShell 5.1 against a sample Desktop config
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion
+          $dir = Join-Path $env:RUNNER_TEMP 'Claude'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $cfg = Join-Path $dir 'claude_desktop_config.json'
+          '{"mcpServers":{"other":{"command":"x","args":["y"]}},"theme":"dark"}' | Set-Content -Encoding ascii $cfg
+          & .\tools\reddit-research-mcp\scripts\install.ps1 -DesktopConfigPath $cfg -SkipClaudeCode
+          if ($LASTEXITCODE -ne 0) { throw "installer exit $LASTEXITCODE" }
+          # Second run must be idempotent.
+          & .\tools\reddit-research-mcp\scripts\install.ps1 -DesktopConfigPath $cfg -SkipClaudeCode -SkipSmoke
+          $c = Get-Content -Raw $cfg | ConvertFrom-Json
+          if (-not $c.mcpServers.other) { throw 'existing server was lost' }
+          if ($c.theme -ne 'dark') { throw 'other settings were lost' }
+          $e = $c.mcpServers.'reddit-research'
+          if (-not (Test-Path $e.command)) { throw "node path missing: $($e.command)" }
+          if (-not (Test-Path $e.args[0])) { throw "entry path missing: $($e.args[0])" }
+          Get-Content -Raw $cfg
+          # Launch the server exactly as Claude Desktop would and confirm it lists tools.
+          $env:MCP_CMD = $e.command; $env:MCP_ARG = $e.args[0]
+          node tools/reddit-research-mcp/scripts/desktop-launch-check.mjs
