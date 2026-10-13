@@ -222,7 +222,10 @@ export function createServer() {
           .min(10)
           .max(600)
           .default(50)
-          .describe("Stop launching new searches after this many seconds and return what was found (keeps under client timeouts)."),
+          .describe(
+            "Hard stop in seconds; returns what was found. Default 50 fits Claude Desktop's ~60s tool limit. " +
+              "In Claude Code (no practical limit) use 300-600 for broad sweeps; each archive search takes ~2-10s."
+          ),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },

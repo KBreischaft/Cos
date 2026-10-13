@@ -136,13 +136,24 @@ export const pullpush = {
   },
 };
 
+// Share of the remaining time a source may use when another source is still
+// waiting behind it. Live runs showed Arctic Shift's keyword post search can
+// time out server-side for a minute at a time; without a cap, its retries ate
+// the whole call budget before PullPush was ever tried.
+const PRIMARY_SHARE = 0.6;
+
 // Try each source in order; return the first that answers, plus notes on failures
 // so the model (and the user) can see when a fallback happened.
 export async function firstAvailable(sources, method, args) {
   const notes = [];
-  for (const src of sources) {
+  for (const [i, src] of sources.entries()) {
+    const isLast = i === sources.length - 1;
+    const deadline =
+      !isLast && args.deadline !== undefined
+        ? Date.now() + Math.floor((args.deadline - Date.now()) * PRIMARY_SHARE)
+        : args.deadline;
     try {
-      const items = await src[method](args);
+      const items = await src[method]({ ...args, deadline });
       return { items, source: src.name, notes };
     } catch (e) {
       notes.push(`${src.name}: ${e.message}`);

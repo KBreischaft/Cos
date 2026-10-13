@@ -124,6 +124,25 @@ test("single searches stop at the per-call budget instead of retrying forever", 
   assert.ok(took < 5000, `took ${took}ms`);
 });
 
+test("a struggling primary archive can't starve the fallback of time", async () => {
+  const c = new Client({ name: "split-test", version: "0" });
+  await c.connect(new StdioClientTransport({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../src/index.js", import.meta.url))],
+    env: { ...process.env, ARCTIC_SHIFT_BASE_URL: fakes.arcticUrl, PULLPUSH_BASE_URL: fakes.pullpushUrl, REDDIT_MCP_MAX_RETRIES: "20", REDDIT_MCP_CALL_BUDGET_MS: "5000", REDDIT_MCP_MIN_GAP_MS: "50", REDDIT_MCP_PULLPUSH_GAP_MS: "50", HTTP_PROXY: "", HTTPS_PROXY: "", http_proxy: "", https_proxy: "" },
+  }));
+  setArcticMode("down");
+  const t0 = Date.now();
+  const r = await c.callTool({ name: "reddit_search_posts", arguments: { query: "x", subreddit: "EIDL" } });
+  const took = Date.now() - t0;
+  setArcticMode("ok");
+  await c.close();
+  assert.equal(r.isError, undefined, r.content[0].text);
+  const j = JSON.parse(r.content[0].text);
+  assert.equal(j.source, "pullpush");
+  assert.ok(took < 5500, `took ${took}ms`);
+});
+
 test("Arctic outage on scoped search falls back to PullPush", async () => {
   setArcticMode("down");
   const r = await call("reddit_search_posts", { query: "EIDL", subreddit: "EIDL" });
