@@ -6,3 +6,4 @@ and teammates can reuse them. Each tool lives under `tools/<name>/` with its own
 | Folder | What it is |
 |---|---|
 | `tools/mls-watcher/` | Fix kit for the DSD MLS watcher (Zillow status tracker that runs on Kyle's PC). `README-FIX.md` documents the 2026-09-30 Zillow 403 diagnosis and a fetch-layer fix that was superseded on 2026-10-01 by the MLS portal reader on the PC (not applied; reference only). |
+| `tools/reddit-research-mcp/` | Read-only MCP server for deep Reddit research (Arctic Shift + PullPush archives). One-command Windows installer, offline and live tests. |

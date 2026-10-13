@@ -1,0 +1,24 @@
+{
+  "name": "reddit-research-mcp",
+  "version": "0.1.0",
+  "description": "Read-only MCP server for deep research on Reddit via the public archives (Arctic Shift, PullPush).",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/plumbing.test.mjs",
+    "smoke": "node scripts/smoke-live.mjs"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.7"
+  },
+  "type": "module",
+  "bin": {
+    "reddit-research-mcp": "src/index.js"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  }
+}
